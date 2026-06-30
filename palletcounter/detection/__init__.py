@@ -13,7 +13,13 @@ def build_detector(name: str, **kwargs) -> Detector:
         from .yolo import YoloDetector
 
         return YoloDetector(**kwargs)
-    raise ValueError(f"未知の検出器: {name!r}（'mock' または 'yolo'）")
+    if name == "openvocab":
+        from .openvocab import OpenVocabDetector
+
+        return OpenVocabDetector(**kwargs)
+    raise ValueError(
+        f"未知の検出器: {name!r}（'mock' / 'yolo' / 'openvocab'）"
+    )
 
 
 __all__ = ["Detector", "MockDetector", "build_detector"]

@@ -129,6 +129,32 @@ python -m palletcounter run <実映像> --detector yolo
 のように**コード変更なしで差し替え**られます（COCO等の汎用重みにはPパレ
 クラスが無いため、本番には自社学習モデルが前提）。
 
+### 自分の本物の映像・写真で試す（学習前のゼロショット）
+
+学習データが無い段階でも、**オープン語彙検出（YOLO-World）** を使えば
+「forklift」「wooden pallet」などのテキスト指定だけで**本物の映像をゼロショット検出**
+できます（本番精度は学習版が前提。あくまで試行用）。
+
+```bash
+pip install ultralytics           # 初回のみ（CLIP等を含むモデル一式）
+
+# 写真1枚（方向判定なし。写っているPパレ枚数/状態を推定）
+python tools/detect_media.py path/to/photo.jpg --detector openvocab
+
+# 動画（通過→計数まで。注釈動画も書き出し）
+python tools/detect_media.py path/to/clip.mp4 --detector openvocab -o out.mp4
+```
+
+検出語は `palletcounter/detection/openvocab.py` の `DEFAULT_PROMPTS` で調整できます。
+**自社学習した重みがある場合**は学習版を使います（高精度）:
+
+```bash
+python tools/detect_media.py path/to/clip.mp4 --detector yolo --weights best.pt -o out.mp4
+```
+
+> 既定の `mock` 検出器は合成サンプル映像の色専用で、**本物の映像には使えません**。
+> 本物の映像には `openvocab`（学習不要）か、学習済み重みの `yolo` を使ってください。
+
 ### 横展開（NFR-10）
 
 1ドック＝1 `DockConfig`。`site_id` / 計数ライン位置 / 入出庫の向き / しきい値を
