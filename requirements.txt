@@ -1,8 +1,8 @@
-# 実行に必須（コアパイプライン・合成映像・ダッシュボード）
+# Required at runtime (core pipeline, sample video, dashboard)
 numpy>=1.24
 opencv-python-headless>=4.8
 
-# 任意：学習済みYOLOモデルで検出する場合のみ
+# Optional: only if you run detection with a trained YOLO model
 #   pip install ultralytics
-# 開発：テスト実行
+# Dev: run tests
 #   pip install pytest
