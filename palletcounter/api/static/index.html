@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pパレ計数ダッシュボード</title>
+<style>
+  :root { font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  body { margin: 0; background: #0f172a; color: #e2e8f0; }
+  header { padding: 16px 24px; background: #1e293b; border-bottom: 2px solid #334155; }
+  header h1 { margin: 0; font-size: 18px; }
+  header span { color: #94a3b8; font-size: 13px; }
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: #1e293b; border-radius: 10px; padding: 16px; }
+  .card .label { font-size: 12px; color: #94a3b8; }
+  .card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .card.inbound .value { color: #4ade80; }
+  .card.outbound .value { color: #f87171; }
+  .card.stock .value { color: #60a5fa; }
+  .card.pending .value { color: #fbbf24; }
+  h2 { font-size: 15px; border-left: 4px solid #3b82f6; padding-left: 8px; margin: 28px 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #334155; }
+  th { color: #94a3b8; font-weight: 600; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .b-inbound { background: #14532d; color: #86efac; }
+  .b-outbound { background: #7f1d1d; color: #fca5a5; }
+  .b-auto { background: #1e3a8a; color: #93c5fd; }
+  .b-review { background: #78350f; color: #fcd34d; }
+  .b-reviewed { background: #334155; color: #cbd5e1; }
+  button { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+  button.fix { background: #475569; }
+  button:hover { opacity: 0.9; }
+  input.num { width: 52px; background:#0f172a; color:#e2e8f0; border:1px solid #475569; border-radius:4px; padding:3px; }
+  a.export { color:#60a5fa; font-size:13px; }
+  .empty { color:#64748b; padding:12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>映像解析によるPパレ受払い計数システム</h1>
+  <span id="site">—</span> <span>・ 自動更新（3秒）</span>
+</header>
+<main>
+  <div class="cards">
+    <div class="card stock"><div class="label">理論在庫</div><div class="value" id="theoretical">–</div></div>
+    <div class="card"><div class="label">期首在庫</div><div class="value" id="opening">–</div></div>
+    <div class="card inbound"><div class="label">入庫(+)</div><div class="value" id="inbound">–</div></div>
+    <div class="card outbound"><div class="label">出庫(−)</div><div class="value" id="outbound">–</div></div>
+    <div class="card"><div class="label">イベント数</div><div class="value" id="events">–</div></div>
+    <div class="card pending"><div class="label">確認待ち</div><div class="value" id="pending">–</div></div>
+  </div>
+
+  <h2>確認キュー（低信頼度パス・人が1タップ確定/補正）</h2>
+  <div id="queue"></div>
+
+  <h2>計数イベント履歴　<a class="export" href="/api/export.csv">CSVエクスポート ↓</a></h2>
+  <table>
+    <thead><tr><th>ID</th><th>時刻</th><th>方向</th><th>状態</th><th>枚数</th><th>信頼度</th><th>確定</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<script>
+const STATE_JA = { empty_fork:"空フォーク", empty_stack:"空段積み", loaded:"積載" };
+const dirBadge = d => d==="inbound"
+  ? '<span class="badge b-inbound">入庫</span>'
+  : '<span class="badge b-outbound">出庫</span>';
+
+async function refresh() {
+  const [s, ev, pend] = await Promise.all([
+    fetch('/api/summary').then(r=>r.json()),
+    fetch('/api/events').then(r=>r.json()),
+    fetch('/api/pending').then(r=>r.json()),
+  ]);
+  document.getElementById('site').textContent = '拠点: ' + s.site;
+  document.getElementById('theoretical').textContent = s.theoretical;
+  document.getElementById('opening').textContent = s.opening;
+  document.getElementById('inbound').textContent = '+' + s.inbound;
+  document.getElementById('outbound').textContent = '−' + s.outbound;
+  document.getElementById('events').textContent = s.events;
+  document.getElementById('pending').textContent = s.pending_review;
+
+  // 確認キュー
+  const q = document.getElementById('queue');
+  if (!pend.length) {
+    q.innerHTML = '<div class="empty">確認待ちはありません。</div>';
+  } else {
+    let h = '<table><thead><tr><th>ID</th><th>時刻</th><th>方向</th><th>状態</th><th>枚数(補正可)</th><th>信頼度</th><th></th></tr></thead><tbody>';
+    for (const e of pend) {
+      h += `<tr>
+        <td>${e.id}</td><td>${e.timestamp}</td><td>${dirBadge(e.direction)}</td>
+        <td>${STATE_JA[e.state]||e.state}</td>
+        <td><input class="num" id="c${e.id}" type="number" value="${e.count}" min="0"></td>
+        <td>${e.confidence}</td>
+        <td>
+          <button onclick="confirmEvent(${e.id})">確定</button>
+          <button class="fix" onclick="correctEvent(${e.id})">補正</button>
+        </td></tr>`;
+    }
+    q.innerHTML = h + '</tbody></table>';
+  }
+
+  // 履歴
+  const tb = document.getElementById('rows');
+  tb.innerHTML = ev.map(e => {
+    let badge = e.reviewed ? '<span class="badge b-reviewed">確認済</span>'
+      : e.auto_confirmed ? '<span class="badge b-auto">自動</span>'
+      : '<span class="badge b-review">要確認</span>';
+    return `<tr><td>${e.id}</td><td>${e.timestamp}</td><td>${dirBadge(e.direction)}</td>
+      <td>${STATE_JA[e.state]||e.state}</td><td>${e.count}</td><td>${e.confidence}</td><td>${badge}</td></tr>`;
+  }).join('');
+}
+
+async function review(id, body) {
+  await fetch('/api/review', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({id}, body))});
+  refresh();
+}
+function confirmEvent(id){ review(id, {}); }
+function correctEvent(id){
+  const v = parseInt(document.getElementById('c'+id).value, 10);
+  review(id, {count: v});
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
